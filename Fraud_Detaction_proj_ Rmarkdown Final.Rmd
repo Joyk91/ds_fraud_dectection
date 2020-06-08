@@ -1,0 +1,405 @@
+---
+title: "Fraud Detection Model"
+author: "Joy Kearney"
+date: "23 November 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exploratory Data Analysis and Model Fitting on Credit Scoring Data 
+
+## Table of Contents 
+1. Introduction 
+2. Exploratory Data Analysis  
+3. Data Cleaning & Feature Engineering 
+4. Modelling  
+5.0 Misclassification Cost 
+6.0 Scoring Dataset & Model Testing 
+9.0 Conclusion 
+Refernces 
+
+Packages installed and used in the project listed below: 
+``````````{r}
+
+library(adabag)
+library(gbm)
+library(tree)
+library(ISLR) 
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(DataExplorer) 
+library(dplyr) 
+library(plotly) 
+library(ggplot2)
+````````
+## 1.1 The data:
+The dataset has 14 columns showing the financial and demographic information for use in credit scoring examples. The dataset was read into Rstudio and the column names changed for ease in Exploratory Data Analysis. 
+
+````````{r} 
+# read in the training data 
+
+traindata<- read.csv("Fraud_Data_train.csv", na.strings =c("")) 
+colnames(traindata) <- c('ID', 'Current_Acct', 'Credit_History', 'Loan_Reason', 'Savings_Acct', 'Employment', 'Personal_Status', 'Housing', 'Job_Type', 'Foreign_National', 'Length_Current_Acct(Months)', 'Residence_Time(Years)', 'Age', 'Credit_Standing') 
+
+# lets have a proper look at the data 
+
+names(traindata)
+head(traindata)
+dim(traindata) 
+View(traindata) 
+````````````
+
+The 14th column (Credit_Standing) is the indicator variable on loan defaults, which can be used as the target in supervised learning. The following are the descriptive tags given to these variables:  
+
+1.ID
+2.Current_Acct
+3.Credit_History 
+4.Loan_Reason 
+5.Savings_Acct 
+6.Employment
+7.Personal_Status
+8.Housing 
+9.Job_Type
+10.Foreign_National
+11.Length_Current_Acct(Months)
+12.Residence_Time(Years)
+13.Age
+14.Credit_Standing
+
+A summary of the data can be seen below:
+
+```````{r} 
+summary(traindata) 
+``````````````
+
+## 1.2 Cleaning Data 
+As mentioned above the column names were changed for descriptive purposes and for ease of use during Exploratory Data Analysis. One of the main issues with the data apart from the column names was missing values and outliers. The data has a total of 44 missing values (NAs). With the help of the package DataExplorer the graph below was generated to describe the missing values: 
+ 
+ 
+```````````{r} 
+library(DataExplorer)
+plot_missing(traindata)
+````````````
+As seen above 4.23% of the missing observations are in the employment category. This is suspicious considering proof of steady income is a vital parameter of meeting loan approval requirements. Since these missing values accounted for 33 of the 44 missing values in the whole dataset, it was decided that the missing values would be kept for further investigation.
+It was also observed that the column 'Residence_Time(Years)' had an outlier. As can be seen by the summary below the minimum value of the column read in at negative two. Considering one can’t live in a place for a negative amount of time it was concluded that this specific entry may have fallen victim to data entry error and was labelled and outlier. Because this outlier greatly affected the mean the observation containing the outlier was deleted for the dataset so as to have organic results generated in the EDA. 
+
+
+````````````{r} 
+summary(traindata$`Residence_Time(Years)`)
+traindata <- traindata[-391, ]  # cannot have minus years in residence. May be data entry problem so this observation will be deleted 
+summary(traindata$`Residence_Time(Years)`) # Summary now looks better 
+````````````
+## Exploratory Data Analysis  
+A 4-step process was adopted for Exploratory Data Analysis. This process will reflect the vigorous EDA carried out along with plots and conclusion. The 4-step process has the following headings:
+
+2.1 Univariate analysis and plots
+2.2 Bivariate analysis and plots
+2.3 Multivariate analysis and plots
+2.4 Final plots and Conclusion
+
+Firstly, to get a feel for the data a summary report was generated using the package DataExplorer. 
+
+````````{r}
+#create_report(traindata) 
+``````````
+#### 2.1 Univariate Analysis 
+This package was used to get a general feel for the data and to determine a path of investigation. From this report we can see that there are 4 continuous variables including the columns ID, Age, Residence time and current account length. The other 10 variables are categorical. The data had 780 rows, 44 NAs which means there is 737 complete rows. The report also contains some univariate plots. The first plot that stood out was the univariate Credit_Standing variable as it shows that of the 780 previous customers 319 of them were considered bad loan applicants and 461 were good loan applicants. 
+
+
+``````````{r}
+table(traindata$Credit_Standing)
+barplot(table(traindata$Credit_Standing), main = "Credit Standing Barplot")
+
+``````````````
+Approximately 41% of the Scoring set have been reported as bad loans. This is sufficiently high. Another univariate plot investigated was Employment plot. The plot can be generated below: 
+
+``````````{r} 
+plot_bar(traindata$Employment) 
+table(traindata$Employment)
+````````````
+As mentioned this variable has a total of 33 missing values. As can be depicted by the plot approximately 54% of the customers are in short employment, very short employment or unemployed. Proving steady income is an important parametric of credit scoring so Employment will be looked at further. 
+
+A subset divining the data by Credit Standing lead to investigating the characteristics of good loan applicants and the characteristics that bad loan applicants.
+
+```````{r} 
+good <- subset(traindata, Credit_Standing=="Good")
+
+bad <- subset(traindata, Credit_Standing=="Bad")
+
+````````
+By looking at all the variables with respect to good loan applicants and bad loan applicants It helped to narrow investigation and to really understand the parameters that define a good loan applicant and a bad loan applicant. 
+As mentioned employment was an area of investigation that needed more attention. 
+
+```````````{r}
+barplot(table(good$Employment))# now we are talking big difference between the two. good has 
+barplot(table(bad$Employment))
+plot_bar(good$Employment) # had to use dataexplorer as nas were not being graphed
+plot_bar(bad$Employment)  
+
+barplot(table(good$Job_Type))# this is weird less unemployed in the bad group than the good
+barplot(table(bad$Job_Type))
+table(good$Job_Type)# very weird check out further  
+table((bad$Job_Type))  
+````````````
+It is obvious from the graphs produced here that the good loan applicants generally  have long term and medium employment when comapred with bad loan applicants which have marginally more short-term employment. However, it was noted that there were 17 more unemployed customers in the good loan data. This will be investigated more in the bivariate section. Moving on from employment the Job Type was explored. Again, it seems good loan applicants reported having more skilled and management jobs when compared with bad applicants.  
+
+The difference in credit history was also explored between the good and bad applicants and the following findings observed: 
+     Bad loan applications reported having more Critical (28%) Credit History compared to good loan       customers.  
+     Good loan customers had marginally more "All Paid" and "Bank Paid" Credit History status            compared to bad loan applicants. 
+
+
+````````````{r}
+barplot(table(good$Credit_History))# good at telling us the difference. bad has alot more critical accounts whre as good have few. good has high all paid 
+barplot(table(bad$Credit_History))
+table(good$Credit_History)# not so good for telling us the diff between good and bad
+table(bad$Credit_History)
+````````````
+More interesting observations from the subsets good and bad were as follows:  
+10% more good loan applicants own their own home compared with bad loan applicants  
+The data set reports a high number of foreign nationals.
+
+
+`````````````{r}
+
+barplot(table(good$Housing))
+barplot(table(bad$Housing))
+table(good$Housing) # good for comparisin. almost double in the good group own their own house  
+table((bad$Housing))
+
+
+barplot(table(good$Foreign_National))
+barplot(table(bad$Foreign_National))
+table(good$Foreign_National) # mentioned alot of foreign nastionals however majority are good loas 
+table((bad$Foreign_National))# and bad and not froeign are pretty similar
+````````
+
+#### 2.2 Bivariate Data Analysis 
+From the univariate section a path of investigation was chosen to delve deeper into the variables Credit Standing, Credit History, Employment, Job Type, and Housing. 
+The package ggplot2 was used to plot variables against each other for analysis. There are four main graphs of interest. 
+Firstly, the relationship between Credit Standing and Employment was looked at.
+
+
+``````````{r}
+ggplot(traindata, aes(x =Credit_Standing, fill = Employment)) + 
+  geom_bar() # good variable. shows to have more unemployed amd more nas in the good loan applicats which is against the norm 
+# but alos has a good deal more people in long and medium employment 
+``````````````
+This plot again backs up our findings in the univariate section, that good loan applicants characteristically have long-medium termed employment therefore giving them sufficient income to keep up with loan repayments. Furthermore, these applicants also report having skilled and management level jobs indicating that they may report higher earning potential again reiterating that they will have sufficient income to pay off loans. However, the graph also shows more unskilled workers in the good category compared to the bad category, therefore in my opinion job type solely is not a sufficient parameter to deny loan applicants. it can certainly be used in conjunction with another variable for example Employment to use as a metric for defaulting.  
+
+````````````{r}
+ggplot(traindata, aes(x =Credit_Standing, fill = Job_Type)) + 
+  geom_bar()# as with emploment alot of skilled in both but more unskilled in good and more unemployed weird  
+``````````````
+Another characteristic observed in univariate is that Bad loan applicants reported having marginally more critical credit history that those of the good loan applicants, and again this is highlighted by the plot below. As well as good loan applicants characteristically having a good credit history.
+
+``````````````{r}
+ggplot(traindata, aes(x =Credit_Standing, fill = Credit_History)) + 
+  geom_bar()# fantastic all the critical applicats are termed bad loand very important variable indeciding credit worthiness so defo use 
+
+``````````````
+And lastly Housing was investigated as it is used in credit scoring as a type of collateral. It was observed again that good loan applicants tend to own properties when compared with the bad loan applicants.
+
+`````````{r}
+ggplot(traindata, aes(x =Credit_Standing, fill = Housing)) + 
+  geom_bar() # most who are terned good have their own property good chpoice for picking it for credit scoring
+``````````````
+
+#### 2.3 Multivariate Data Analysis 
+``````{r} 
+tri <- ggplot(data = traindata, mapping = aes(x = Credit_Standing))+ 
+  geom_bar(stat = "count",fill = "#FF6666", position = position_dodge())+ facet_grid(Credit_History~Savings_Acct) 
+tri 
+``````
+A trivariate analysis was carried out on Credit Standing, Credit History and Savings Account. The graph visualises what was being investigated on bad loan applicants. It clearly shows that bad loan applicants have a critical credit history and usually have a low balance. It also shows that many of the previous loan customers have current credit history with low savings account.  
+ 
+``````````{r} 
+triAge <-
+  ggplot(data = traindata, mapping = aes(x = Age))+ 
+  geom_bar(stat = "count",fill = "blue", position = position_dodge())+ facet_grid(Credit_History~Credit_Standing) 
+triAge
+``````````
+Another trivariate analysis was carried out between Credit Standing, Savings Account and Age. The visuals show that most of the loan applicants are young (between 20-40 years old). It also reiterates how a critical credit history is a primary attribute for determining  bad loans applicants.
+
+#### 2.4 Exploratory Data Analysis Conclusion  
+Main findings are summarised in tables on the following page. The EDA allowed us to fully understand the characteristics that good loan applicants have compared with bad loan applicants. 
+Also, it was observed during Exploratory Data Analysis that there were 44 missing values. Decision trees and random forest do not do well with missing values. So rather than to eliminate the rows with missing values the median and the mode were filled in for those values. However, the 33 missing values in the employment variable will be looked at later because 31 of the missing values were missing in a consecutive pattern which is suspicious. 
+ 
+
+```````````{R} 
+table(traindata$Employment) # short term work is mode
+traindata$Employment[is.na(traindata$Employment)] <- "Short" # fill in median for ramdon foresst
+sum(is.na(traindata$Employment))
+sum(is.na(traindata$Personal_Status))
+table(traindata$Personal_Status) # single is meadia value ioccurs most often
+traindata$Personal_Status[is.na(traindata$Personal_Status)] <- "Single"
+sum(is.na(traindata$Personal_Status))
+sum(is.na(traindata$Housing))
+table(traindata$Housing) # own is meadia value ioccurs most often
+traindata$Housing[is.na(traindata$Housing)] <- "Own"
+
+sum(is.na(traindata))
+# all nas removed for random foresst fillend in with median or mode 
+````````````
+## 3.0 ROC Curve 
+Historically the name "ROC" comes from communications theory and is an acronym for Receiver Operating Characteristics(1).  The ROC curve shows two types of errors for all possible thresholds and is very popular as a performance graphic (5). The basis on the ROC curve as a performance metric is based on the fact that the area under an ROC curve gives the performance of a classifier summarised at all possible thresholds (5). An ideal ROC curve will hug the top left corner, so the larger area under the (ROC) curve the better the classifier (1). 
+
+
+``````{r}
+#![ROC][\Users\joyk9\Documents\Data_sc_Analytics\ROC.jpeg.jpg] 
+#[\Users\joyk9\Documents\Data_sc_Analytics\ROC.jpeg.jpg]: figures/ROC Curve.png
+
+
+``````
+
+## 4.0 Decision Tree  
+As mentioned features were picked from the EDA and used to build a decision tree as well as using all variables in the dataset. Both decision trees were built and the model which included all the variables gave a slightly better result. So, this model will be used to go forward with the investigation. 
+The main aim of this investigation is to determine a set of characteristics that define a bad loan applicant from a good loan applicant and therefore the target variable is Credit Standing. Considering our target variable and most other variables in the dataset are categorical it was concluded that the best decision tree to build would be a classification tree.
+The dataset was split into train and test data. It was decided for model accuracy to use a large training set, so the data was split 50:50(5). The package rpart and rpart.plot were used to create the classification tree, as they contain features for a visually appealing tree when compared to the basic tree package. The tree was built with the following code:  
+
+
+```````````````{r}  
+# model building 
+
+Credit_Scoring=data.frame(traindata) 
+
+# Credit_standing is our target variable 
+Credit_Scoring.Model <- rpart(Credit_Standing~ Current_Acct+Credit_History+Loan_Reason+Savings_Acct+Employment+Personal_Status+Housing+ 
+                            Job_Type+Foreign_National+Length_Current_Acct.Months.+Residence_Time.Years.+Age, 
+                              data=Credit_Scoring)   
+
+rpart.plot(Credit_Scoring.Model, type= 5, tweak =1.25, box.palette = "pink")
+
+summary(Credit_Scoring.Model) # lets summarise the model 
+table(Credit_Scoring$Credit_Standing)/nrow(Credit_Scoring) 
+
+set.seed(161)# for reproducability 
+train=sample(1:nrow(Credit_Scoring), 390)
+Credit_Scoring.test=Credit_Scoring[-train,]
+high.test=Credit_Scoring$Credit_Standing[-train]
+Credit_Scoring.Model=rpart(Credit_Standing~ Current_Acct+Credit_History+Loan_Reason+Savings_Acct+Employment+Personal_Status+Housing+ 
+                            Job_Type+Foreign_National+Length_Current_Acct.Months.+Residence_Time.Years.+Age, 
+                          data=Credit_Scoring)
+
+tree.pred=predict(Credit_Scoring.Model,Credit_Scoring.test,type="class") # predict 
+table(tree.pred, high.test)
+(97+199)/389 #  0.7609  
+``````````````
+The baseline rate was determined (bad = 0.4089 good = 0.5910) for the dataset. The accuracy of the model was found to be 76% when calculated using a confusion matrix.
+
+## 5.0 Testing  the Decision tree 
+
+Three different loan applicants were chosen at random from the Scoring data to test the decision trees accuracy. The applicants chosen were the following: 
+    1. ID 783 
+    2. ID 787 
+    3. ID 791  
+    
+Now let’s  explain how the decision tree differentiates between bad and good loan applicants. 
+
+1. ID 783 
+The applicant ID 783 was taken and all their info. The root node of the decision tree asks, does this applicant have a Critical Credit History ? As we can see from their information they do not have a critical Credit history. So, we move right for no. Which leads us to the next node and the next question. Does this applicant have a Current/Delay Credit History? In this case our applicant does have a Current credit history and therefore the answer to the question is yes and so we move left down to the next node. This node asks does this applicant have Short employment? Our applicant has very short employment and so no they do not have short employment, so we move right for no down to the end of the tree and the applicant is labelled a good applicant for a loan. 
+
+2. ID 787 
+At the root node the question does this applicant have a critical credit history is asked and in this case the answer is no and so we move right down to the next node. This node asks the question is this loan applicant has a current/delay credit history and the answer is yes so, we move left down to the next node. This node asks the question is this applicant in short employment? Our applicant does not have short employment, so we move right for no. This applicant is labelled a good loan applicant. 
+
+3. ID 791
+At the first node we are asked the question does this applicant have a critical credit history? And as can be seen from the scoring data our applicant does in fact have a critical credit history and so we move left for yes and they are straight away labelled a bad loan applicant. 
+The Decision Tree algorithm was then used to check the above answers for these three potential loan applicants. The Scoring data containing these three applicants had to be input and their attributes changed to match the current dataset. 
+
+
+```````````````{r}    
+    
+Scoring_Data <- read.csv("Scoring Data.csv", sep = ",") 
+colnames(Scoring_Data) <- c('ID', 'Current_Acct', 'Credit_History','Loan_Reason', 'Savings_Acct', 'Employment', 'Personal_Status', 'Housing', 
+                            'Job_Type', 'Foreign_National', 'Length_Current_Acct.Months.', 'Residence_Time.Years.', 'Age')
+
+
+Applicants <- subset(Scoring_Data[c(3,7,11),]) 
+
+
+
+predict(Credit_Scoring.Model, Applicants, type = "class") # 3 applicants good or bad  
+predict(Credit_Scoring.Model, Applicants) 
+ 
+
+````````````````
+
+The output is indeed the answers given above (ID 783 = Good, ID 787 = Good, & ID 791 = Bad). Therefore, it was proved that the model works for test data. However, the model is only 76% accurate and so more work will be carried out to try and increase the model’s accuracy. 
+As mentioned for a classification tree a confusion matrix is used to determine the accuracy of the model (i.e. The number of correct predictions made divided by the total number of predictions made). 
+
+## 6.0 Increasing Model Accuracy 
+
+There are three different ways to increase the accuracy of the model, ensemble technique, boosting or building a different model. Since the model is already at 76% accuracy it was decided that a new model would not need to be built and instead increasing the accuracy would try to be achieved through ensemble technique and boosting. 
+The ensemble technique Random Forrest was chosen. Random Forrest is a type of supervised learning algorithm. Simply what Random Forrest does is builds multiple decision trees and merges them together to produce a more accurate and stable model(4). Random Forrest was carried out on our model and the best result generated was 73% accuracy. 
+
+
+
+``````````{r}  
+set.seed(161)
+high.rf <- randomForest(Credit_Standing~.,data = Credit_Scoring[train,], mtry=4, importance=TRUE, ntree=500)
+varImpPlot(high.rf)
+
+rf.pred=predict(high.rf,Credit_Scoring.test,type="class")
+table(rf.pred,high.test)
+(94+191)/389  
+````````````````
+This is a worse result than our first model of 76%. As memtioned in the EDA the missing values were filled in with the media for that variable. And this was specifically because Random forest cannot work with missing values. This may be influencing our model accuracy. Also, the Random forest may have suffered due to noisy variables. For example, the employment variable had 10 factor levels (noisy) the data was manipulated to have only 5 factors to aid Random Forrest. However Random Forrest may do better with regression variable rather than many categorical variables used in classification.  
+
+A Boosting method was also carried out to increase the accuracy of the model. The boosting algorithm Adabag was used, which usually outputs good accuracy results for classification trees. It implements Freund and Schapire's Adaboost.M1 algorithm and Breiman's Bagging algorithm using classification trees as individual classifiers(4). The best result generated using the Adabag algorithm was 72%. Again, this is worse than our original model. Perhaps the slightly unbalanced data is affecting the algorithm. The parameters would need to be fined tuned and researched some more and perhaps a better result could be achieved however, while running the algorithm it was determined that it was computationally expensive. And so, would be redundant for a case such a credit scoring because it is not effective when applied to a real time application.  
+
+
+````````````{r} 
+set.seed(161)
+cred.adabag <- boosting(Credit_Standing~., data = Credit_Scoring[train,],v=10, boos = TRUE, mfinal=50,control=rpart.control(maxdepth=5))
+
+yhat_cred_adabag=predict(cred.adabag,newdata=Credit_Scoring[-train,])
+yhat_cred_adabag$confusion
+(102+178)/389
+````````````````
+
+However acuracy can be misleading in a model. It can instead predict the majority variables. therefore, it is in some cases better to select a model with lower accuracy because its predictive power is much greater(2). 
+
+##7.0 Unbalanced Data 
+There are a number of ways to dealing with unbalanced data. These include resampling, getting more data or introducing more metrics to your model(2). Because we cannot resample or collect more data for this problem I am going to investigate two methods. One is to introduce an average cost per classification record and the other is to use metrics like cut off and costMatrix in random forest(2).  
+In theory calculating an average cost per classification record and applying it to the confusion matrix would enable the algorithm to deal better with misclassification. In Random Forrest one could use a cut off point for misclassification or incorporate a costMatrix(3). This will increase a model’s accuracy when it allows for metric to be involved after data analysis. On this occasion the code would not work for visual purposes therefore more research on how to incorporate these cost metrics into a model will have to be carried out.
+
+## 8.0 Incorrect Data Entry 
+As mentioned earlier in the brief, upon exploring the data in the Exploratory Data Analysis section an inconsistence with data entry was observed in the Employment variable. A total of 33 missing values were recorded and it was observed that 31 of them were recorded consecutively between rows ID 89 to ID 120. It was also noted that Job Type was filled for all these applicants with missing employment records. This indicated that upon applying for the loan they did in fact provide information on their employability. This seems suspicious to have this many missing values in a row and therefore I would suggest it is down to incorrect data entry.  
+
+
+``````````````{r}
+grading <- subset(traindata[c(89:120),])
+View(grading) 
+``````````````
+The code above generates the consecutive missing values in a data frame. 
+
+## 9.0 Conclusion 
+The best model generated was the first classification tree model. it has a 76% accuracy rate and strong predictive power. More work could be done on the model to improve its accuracy without hindering its predictive power. However, the model works and is simplistic therefore very easy to incorporate in a real time environment like Credit scoring. It will prove an effective asset in everyday credit scoring even if just used as a reference. 
+The brief also demonstrates the power of machine learning algorithms and their potential application in the business world.
+
+##References 
+
+1.	A classic paper on using ROC curves, old, but still very relevant: Hanley, J. A. and B. J. McNeil (1982). “The meaning and use of the area under a receiver operating characteristic (ROC) curve.” Radiology 143(1): 29-36. 
+
+2.	Brownlee, J. (2018). Classification Accuracy is Not Enough: More Performance Measures You Can Use. [online] Machine Learning Mastery. Available at: https://machinelearningmastery.com/classification-accuracy-is-not-enough-more-performance-measures-you-can-use/ [Accessed 6 Dec. 2018]. 
+
+3.	Docs.oracle.com. (2018). Classification. [online] Available at: https://docs.oracle.com/cd/E11882_01/datamine.112/e16808/classify.htm#DMCON219 [Accessed 6 Dec. 2018]. 
+
+4.	Donges, N. (2018). The Random Forest Algorithm – Towards Data Science. [online] Towards Data Science. Available at: https://towardsdatascience.com/the-random-forest-algorithm-d457d499ffcd [Accessed 6 Dec. 2018]. 
+
+5.	Gareth James, Daniela Witten, Trevor Hastie, Robert Tibshirani. An Introduction to Statistical Learning : with Applications in R. New York :Springer, 2013. Print.  
+
+6.	Rdocumentation.org. (2018). adabag-package function | R Documentation. [online] Available at: https://www.rdocumentation.org/packages/adabag/versions/4.2/topics/adabag-package [Accessed 6 Dec. 2018]. 
+
+
+
+
+
+
+
+
+
+
